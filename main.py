@@ -1,53 +1,58 @@
 # Imports
-from flask import Flask, request           # Web framework
-import os                                  # For env vars
-import json                                # To format messages
-from google.cloud import pubsub_v1         # Pub/Sub client
+from flask import Flask, request          # Web framework for Cloud Run
+import os                                 # For reading environment variables
+import json                               # For formatting data as JSON
+from google.cloud import pubsub_v1        # Pub/Sub publisher client
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Init Pub/Sub publisher
+# Initialize Pub/Sub publisher
 publisher = pubsub_v1.PublisherClient()
 
-# Get env variables
+# Get environment variables
 GCP_PROJECT = os.getenv("GCP_PROJECT")
 TOPIC_NAME = os.getenv("TOPIC_NAME")
 
-# Check if env vars are set
+# Validate environment variables
 if not GCP_PROJECT or not TOPIC_NAME:
-    raise Exception("Missing env vars")
+    raise Exception("Missing required environment variables: GCP_PROJECT or TOPIC_NAME")
 
 # Get full topic path
 topic_path = publisher.topic_path(GCP_PROJECT, TOPIC_NAME)
 
-# Handle POST requests
+# Cloud Run will POST here when a file is uploaded to the bucket
 @app.route("/", methods=["POST"])
 def index():
-    try:
-        envelope = request.get_json()  # Read JSON payload
-        if not envelope:
-            print("No payload")
-            return "Bad Request", 400
+    print("✅ POST request received by Cloud Run")  # Debug print
 
-        # Get file metadata
+    try:
+        envelope = request.get_json()
+
+        if not envelope:
+            print("⚠️ No JSON payload received")
+            return "Bad Request: No JSON", 400
+
+        # Extract file metadata
         name = envelope.get('name', 'unknown')
         size = envelope.get('size', '0')
         content_type = envelope.get('contentType', 'unknown')
 
-        # Create message for Pub/Sub
+        # Build message to publish
         message = {
             "filename": name,
             "size": str(size),
             "format": content_type
         }
 
-        # Publish message
+        # Publish to Pub/Sub
         publisher.publish(topic_path, json.dumps(message).encode("utf-8"))
-        print(f"Published message: {message}")
+
+        # Log the message for screenshot proof
+        print(f"📦 Published message: {message}")
 
         return "OK", 200
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ Error: {e}")
         return f"Internal Server Error: {e}", 500
